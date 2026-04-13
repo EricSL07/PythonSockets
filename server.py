@@ -14,6 +14,108 @@ PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
 sel = selectors.DefaultSelector()
 
+def cadastro_comando(conn, addr, args):
+    logging.info(f"Comando CADASTRO recebido de {addr}")
+    user, password = args.split(",")
+    with lock:
+        with open("users.txt", "a") as f:
+            f.write(f"{user},{password}\n")
+            os.mkdir(f"users/{user}")
+            conn.sendall(b"USER_REGISTERED")
+
+
+def connect_comando(conn, addr, args):
+    logging.info(f"Comando CONNECT recebido de {addr}")
+    user, password = args.split(",")
+    with lock:
+        with open("users.txt", "r") as f:
+            users = f.readlines()
+    users = [u.strip().split(",") for u in users]
+    if [user, password] in users:
+        conn.sendall(b"USER_AUTHENTICATED")
+        os.chdir(f"users/{user}")
+    else:
+        conn.sendall(b"AUTHENTICATION_FAILED")
+
+
+def exit_comando(conn, addr, args):
+    logging.info(f"Comando EXIT recebido de {addr}")
+    conn.sendall(b"")
+    conn.close()
+
+
+def pwd_comando(conn, addr, args):
+    logging.info(f"Comando PWD recebido de {addr}")
+    conn.sendall(os.getcwd().encode())
+
+
+def getdirs_comando(conn, addr, args):
+    logging.info(f"Comando GETDIRS recebido de {addr}")
+    dirs = [d for d in os.listdir() if os.path.isdir(d)]
+    conn.sendall(",".join(dirs).encode())
+
+
+def getfiles_comando(conn, addr, args):
+    logging.info(f"Comando GETFILES recebido de {addr}")
+    files = [f for f in os.listdir() if os.path.isfile(f)]
+    conn.sendall(",".join(files).encode())
+
+def addfiles_comando(conn, addr, args):
+    logging.info(f"Comando ADDFILES recebido de {addr}")
+    filename, content = args.split(",", 1)
+    with lock:
+        with open(filename, "w") as f:
+            f.write(content)
+        conn.sendall(b"FILE_CREATED")
+
+def deletefiles_comando(conn, addr, args):
+    logging.info(f"Comando DELETEFILES recebido de {addr}")
+    filename = args.strip()
+    with lock:
+        if os.path.exists(filename):
+            os.remove(filename)
+            conn.sendall(b"FILE_DELETED")
+        else:
+            conn.sendall(b"FILE_NOT_FOUND")
+
+def getfileslist_comando(conn, addr, args):
+    logging.info(f"Comando GETFILESLIST recebido de {addr}")
+    files = [f for f in os.listdir() if os.path.isfile(f)]
+    conn.sendall(",".join(files).encode())
+
+def getfile_comando(conn, addr, args):
+    logging.info(f"Comando GETFILE recebido de {addr}")
+    filename = args.strip()
+    with lock:
+        if os.path.exists(filename):
+            with open(filename, "r") as f:
+                content = f.read()
+            conn.sendall(content.encode())
+        else:
+            conn.sendall(b"FILE_NOT_FOUND")
+
+comandos = {
+    "CADASTRO": cadastro_comando,
+    "CONNECT": connect_comando,
+    "EXIT": exit_comando,
+    "PWD": pwd_comando,
+    "GETDIRS": getdirs_comando,
+    "GETFILES": getfiles_comando,
+    "ADDFILES": addfiles_comando,
+    "DELETEFILES": deletefiles_comando,
+    "GETFILESLIST": getfileslist_comando,
+    "GETFILE": getfile_comando
+}
+
+
+def comando_digitado(data):
+    for comando in comandos:
+        if data.startswith(comando):
+            args = data[len(comando):].strip()
+            return comando, args
+    return None, data
+
+
 def signal_handler(sig, frame):
     logging.info("Sinal SIGINT recebido, encerrando servidor...")
     sel.close()
@@ -22,73 +124,30 @@ def signal_handler(sig, frame):
 
 def handle_client(conn, addr):
     logging.info(f"Cliente conectado: {addr}")
-    while True:
-        try:
-            data = conn.recv(1024)
-            if not data:
-                break
+    with conn:
+        while True:
             try:
-                # CADRASTRO user, password
-                if data.decode().startswith("CADASTRO"):
-                    logging.info(f"Comando CADASTRO recebido de {addr}")
-                    user, password = data.decode()[9:].split(",")
-                    with lock:
-                        with open("users.txt", "a") as f:
-                            f.write(f"{user},{password}\n")
-                        os.mkdir(f"users/{user}")
-                    conn.sendall(b"USER_REGISTERED")
-
-                # CONNECT user, password
-                elif data.decode().startswith("CONNECT"):
-                    logging.info(f"Comando CONNECT recebido de {addr}")
-                    user, password = data.decode()[8:].split(",")
-                    with lock:
-                         with open("users.txt", "r") as f:
-                            users = f.readlines()
-                    users = [u.strip().split(",") for u in users]
-                    if [user, password] in users:
-                        conn.sendall(b"USER_AUTHENTICATED")
-                        os.chdir(f"users/{user}")
-                    else:
-                        conn.sendall(b"AUTHENTICATION_FAILED")
-
-                # EXIT
-                elif data.decode().startswith("EXIT"):
-                    logging.info(f"Comando EXIT recebido de {addr}")
-                    conn.sendall(b"")
-                    conn.close()
+                data = conn.recv(1024)
+                if not data:
                     break
+                try:
+                    data_decifrada = data.decode().strip()
+                    comando, args = comando_digitado(data_decifrada)
 
-                # PWD
-                elif data.decode().startswith("PWD"):
-                    logging.info(f"Comando PWD recebido de {addr}")
-                    conn.sendall(os.getcwd().encode())
+                    if comando in comandos:
+                        desconectar = comandos[comando](conn, addr, args)
+                        if desconectar:
+                            break
+                    else:
+                        logging.info(f"Mensagem recebida de {addr}: {data.decode()}")
+                        conn.sendall(data_decifrada.encode())
 
-                # GETDIRS
-                elif data.decode().startswith("GETDIRS"):
-                    logging.info(f"Comando GETDIRS recebido de {addr}")
-                    dirs = [d for d in os.listdir() if os.path.isdir(d)]
-                    conn.sendall(",".join(dirs).encode())
-
-                # GETFILES
-                elif data.decode().startswith("GETFILES"):
-                    logging.info(f"Comando GETFILES recebido de {addr}")
-                    files = [f for f in os.listdir() if os.path.isfile(f)]
-                    conn.sendall(",".join(files).encode())
-
-
-                else:
-                    logging.info(f"Mensagem recebida de {addr}: {data.decode()}")
-                    conn.sendall(f"{data.decode()}".encode())
-
-            except Exception as e:
-                logging.error(f"Erro ao processar mensagem de {addr}: {e}")
-                conn.sendall(b"ERROR_PROCESSING_MESSAGE")
-
-        except ConnectionResetError:
-            logging.info(f"Cliente desconectado: {addr}")
-            break
-    conn.close()
+                except Exception as e:
+                    logging.error(f"Erro ao processar mensagem de {addr}: {e}")
+                    conn.sendall(b"ERROR_PROCESSING_MESSAGE")
+            except ConnectionResetError:
+                logging.info(f"Cliente desconectado: {addr}")
+                break
     logging.info(f"Conexão encerrada: {addr}")
 
 def main():
