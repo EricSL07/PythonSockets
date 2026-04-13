@@ -6,13 +6,25 @@ import selectors
 import logging
 import os
 import signal
+import sys
 
 lock = threading.Lock()
 
 HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
+PASTA_SERVIDOR = "servidor_files"
+
+STATUS_SUCCESS = 1
+STATUS_ERRORS = 2
+
+REQUEST_MESSAGE = 1
+RESPONSE_MESSAGE = 2
+
+os.makedirs(PASTA_SERVIDOR, exist_ok=True)
 
 sel = selectors.DefaultSelector()
+
+
 
 def cadastro_comando(conn, addr, args):
     logging.info(f"Comando CADASTRO recebido de {addr}")
@@ -166,5 +178,4 @@ if "__main__" == __name__:
     logging.info("Iniciando servidor")
 
     signal.signal(signal.SIGINT, signal_handler)
-
     main()
