@@ -12,18 +12,8 @@ lock = threading.Lock()
 
 HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
-PASTA_SERVIDOR = "servidor_files"
-
-STATUS_SUCCESS = 1
-STATUS_ERRORS = 2
-
-REQUEST_MESSAGE = 1
-RESPONSE_MESSAGE = 2
-
-os.makedirs(PASTA_SERVIDOR, exist_ok=True)
 
 sel = selectors.DefaultSelector()
-
 
 
 def cadastro_comando(conn, addr, args):
@@ -126,7 +116,6 @@ def comando_digitado(data):
             args = data[len(comando):].strip()
             return comando, args
     return None, data
-
 
 def signal_handler(sig, frame):
     logging.info("Sinal SIGINT recebido, encerrando servidor...")
