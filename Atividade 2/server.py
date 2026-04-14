@@ -59,7 +59,7 @@ def handle_client(conn, addr):
                 caminho_final = os.path.join(PASTA_PADRAO, nome_arquivo)
 
                 tamanho_bytes = receber_cabecalho(conn, 4)
-                tamanho_arquivo = struct.unpack(">I", tamanho_bytes)[0]
+                tamanho_arquivo = struct.unpack("!I", tamanho_bytes)[0]
 
                 logging.info(f"Recebendo arquivo '{nome_arquivo}' ({tamanho_arquivo} bytes) de {addr}...")
                 bytes_recebidos = 0
@@ -71,10 +71,12 @@ def handle_client(conn, addr):
                         chunk = conn.recv(ler_agora)
                         if not chunk:
                             logging.warning(f"Conexão perdida durante o recebimento de '{nome_arquivo}' de {addr}")
+                            resposta = struct.pack("!BBB", 2, cmd_id, 2)
+                            conn.sendall(resposta)
                             break
                         f.write(chunk)
                         bytes_recebidos += len(chunk)
-                
+
                 logging.info(f"Arquivo '{nome_arquivo}' recebido com sucesso de {addr}.")
                 resposta = struct.pack("!BBB", 2, cmd_id, 1)
                 conn.sendall(resposta)
@@ -91,18 +93,32 @@ def handle_client(conn, addr):
                 conn.sendall(resposta)
             
             elif cmd_id == 3:  # GETFILELIST
-                arquivos = os.listdir(PASTA_PADRAO)
-                lista_arquivos = ",".join(arquivos)
-                resposta = struct.pack("!BBB", 2, cmd_id, 1) + lista_arquivos.encode("utf-8")
-                conn.sendall(resposta)
+                try:
+                    arquivos = os.listdir(PASTA_PADRAO)
+                    num_arquivos = len(arquivos)
+                    
+                    resposta = struct.pack("!BBB", 2, cmd_id, 1)
+
+                    dados_lista = struct.pack("!H", num_arquivos)
+
+                    for arq in arquivos:
+                        arq_bytes = arq.encode("utf-8")
+                        tamanho_arq = len(arq_bytes)
+                        dados_lista += struct.pack("!B", tamanho_arq) + arq_bytes
+                    
+                    conn.sendall(resposta + dados_lista)
+                    logging.info(f"Lista de arquivos enviada para {addr}.")
+                except Exception as e:
+                    logging.error(f"Erro ao listar arquivos para {addr}: {e}")
+                    resposta = struct.pack("!BBB", 2, cmd_id, 2)
+                    conn.sendall(resposta)
 
             elif cmd_id == 4:  # GETFILE
                 caminho_final = os.path.join(PASTA_PADRAO, nome_arquivo)
                 if os.path.exists(caminho_final):
                     tamanho_arquivo = os.path.getsize(caminho_final)
-                    resposta = struct.pack("!BBB", 2, cmd_id, 1) + struct.pack(">I", tamanho_arquivo)
+                    resposta = struct.pack("!BBB", 2, cmd_id, 1) + struct.pack("!I", tamanho_arquivo)
                     conn.sendall(resposta)
-
 
                     with open(caminho_final, "rb") as f:
                         conteudo = f.read(1024)

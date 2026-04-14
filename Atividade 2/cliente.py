@@ -18,7 +18,7 @@ def enviar_addfile(c, nome_arquivo):
     if not os.path.exists(nome_arquivo):
         logging.error(f"Arquivo '{nome_arquivo}' não encontrado.")
         return
-    
+
     tipo_msg = 1
     cmd_id = 1
     nome_bytes = nome_arquivo.encode("utf-8")
@@ -67,12 +67,38 @@ def get_file(c, nome_arquivo):
     c.sendall(cabecalho + nome_bytes)
     logging.info(f"Solicitação de download do arquivo '{nome_arquivo}' enviada.")
 
+def receber_resposta_lista(c):
+    cabecalho_resposta = c.recv(3)
+    if not cabecalho_resposta or len(cabecalho_resposta) < 3:
+        logging.error("Resposta do servidor incompleta.")
+        return
+
+    tipo_msg, cmd_id, status = struct.unpack("!BBB", cabecalho_resposta)
+
+    if tipo_msg == 2 and cmd_id == 3:
+        if status == 1:
+            num_arquivos_bytes = c.recv(2)
+            num_arquivos = struct.unpack("!H", num_arquivos_bytes)[0]
+            logging.info(f"Resposta do servidor: {num_arquivos} arquivos encontrados.")
+            arquivos = []
+            for _ in range(num_arquivos):
+                tamanho_nome_bytes = c.recv(1)
+                tamanho_nome = struct.unpack("!B", tamanho_nome_bytes)[0]
+                nome_bytes = c.recv(tamanho_nome)
+                nome_arquivo = nome_bytes.decode("utf-8")
+                arquivos.append(nome_arquivo)
+            logging.info(f"Arquivos disponíveis: {', '.join(arquivos)}")
+        elif status == 2:
+            logging.error("Resposta do servidor: Falha ao listar arquivos.")
+        else:
+            logging.error(f"Resposta do servidor: Status desconhecido ({status})")
+
 def receber_resposta(c):
     cabecalho_resposta = c.recv(3)
     if not cabecalho_resposta or len(cabecalho_resposta) < 3:
         logging.error("Resposta do servidor incompleta.")
         return
-    
+
     tipo_msg, cmd_id, status = struct.unpack("!BBB", cabecalho_resposta)
 
     if tipo_msg == 2:
@@ -110,7 +136,7 @@ def run_client():
 
                 elif opcao == "3":
                     get_files_list(c)
-                    receber_resposta(c)
+                    receber_resposta_lista(c)
 
                 elif opcao == "4":
                     nome_arquivo = input("Digite o nome do arquivo a ser baixado: ")
